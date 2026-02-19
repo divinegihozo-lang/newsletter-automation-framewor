@@ -350,48 +350,250 @@ jobs:
           PYEOF
 
       # 11. Slack notification — SUCCESS
-      - name: Notify Slack on success
-        if: success()
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "*Newsletter Selenium Tests — PASSED*",
-              "attachments": [{
-                "color": "#36a64f",
-                "fields": [
-                  { "title": "Repository",   "value": "${{ github.repository }}", "short": true },
-                  { "title": "Branch",       "value": "${{ github.ref_name }}",   "short": true },
-                  { "title": "Triggered by", "value": "${{ github.actor }}",      "short": true },
-                  { "title": "Run", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run #${{ github.run_number }}>", "short": true }
-                ]
-              }]
-            }
+      - name: Send Slack report
+        if: always()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        run: |
+          python3 << 'PYEOF'
+          import json, os, subprocess, sys, xml.etree.ElementTree as ET
+          from glob import glob
 
-      # 12. Slack notification — FAILURE
-      - name: Notify Slack on failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "*Newsletter Selenium Tests — FAILED*",
-              "attachments": [{
-                "color": "#e01e5a",
-                "fields": [
-                  { "title": "Repository",   "value": "${{ github.repository }}", "short": true },
-                  { "title": "Branch",       "value": "${{ github.ref_name }}",   "short": true },
-                  { "title": "Triggered by", "value": "${{ github.actor }}",      "short": true },
-                  { "title": "Run", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run #${{ github.run_number }}>", "short": true }
-                ]
+          webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
+          if not webhook:
+              print("No SLACK_WEBHOOK_URL set — skipping")
+              sys.exit(0)
+
+          # ── Pull values injected by GitHub Actions ───────────────────────
+          total    = "${{ steps.parse-results.outputs.total }}"    or "0"
+          passed   = "${{ steps.parse-results.outputs.passed }}"   or "0"
+          failed   = "${{ steps.parse-results.outputs.failed }}"   or "0"
+          skipped  = "${{ steps.parse-results.outputs.skipped }}"  or "0"
+          pass_pct = "${{ steps.parse-results.outputs.pass_pct }}" or "0"
+          outcome  = "${{ steps.run-tests.outcome }}"
+          is_pass  = (outcome == "success" and int(failed) == 0)
+
+          repo     = "${{ github.repository }}"
+          branch   = "${{ github.ref_name }}"
+          actor    = "${{ github.actor }}"
+          run_num  = "${{ github.run_number }}"
+          run_url  = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          sha      = "${{ github.sha }}"[:7]
+          commit_msg = "${{ github.event.head_commit.message }}"
+
+          event = "${{ github.event_name }}"
+          trigger = {
+              "push":               "Push to branch",
+              "pull_request":       "Pull Request #${{ github.event.pull_request.number }}",
+              "workflow_dispatch":  "Manual trigger",
+          }.get(event, event)
+
+          # ── Parse each failing testcase from surefire XML ─────────────────
+          # Map test method names to their @DisplayName via a best-effort
+          # approach: the name attribute in the XML is the method name;
+          # we use it as the test case name since @DisplayName is not in XML.
+          failing_tests = []
+          for xml_file in sorted(glob("target/surefire-reports/TEST-*.xml")):
+              try:
+                  tree = ET.parse(xml_file)
+              except ET.ParseError:
+                  continue
+              suite_name = tree.getroot().get("name", "")
+              # Derive a friendly class name (last segment)
+              short_class = suite_name.split(".")[-1] if suite_name else "Unknown"
+
+              for tc in tree.findall(".//testcase"):
+                  node = tc.find("failure") or tc.find("error")
+                  if node is None:
+                      continue
+
+                  method   = tc.get("name", "unknown")
+                  raw_msg  = (node.get("message") or node.text or "").strip()
+                  # Trim assertion prefix noise for cleaner display
+                  disp_msg = raw_msg[:400]
+
+                  failing_tests.append({
+                      "class":  short_class,
+                      "method": method,
+                      "msg":    disp_msg,
+                  })
+
+          # ── Helper to convert a camelCase method name to a readable label ─
+          import re
+          def method_to_label(name):
+              # verifyThatHeadingReadsStayInformed → Verify That Heading Reads Stay Informed
+              spaced = re.sub(r'([A-Z])', r' \1', name).strip()
+              return spaced[0].upper() + spaced[1:] if spaced else name
+
+          # ── Build the test-case detail blocks (one block per failure) ─────
+          # Each failure is presented exactly like the format requested:
+          # description, steps to reproduce, expected result, actual result,
+          # impact, priority — all derived from the test name and failure msg.
+
+          PRIORITY_MAP = {
+              "FormValidationTest":  ("High",   "High: Form validation failures allow invalid data through, "
+                                                "which can cause downstream errors and a poor user experience."),
+              "SuccessCardTest":     ("High",   "High: Incorrect success state feedback breaks the user "
+                                                "subscription flow and reduces trust in the system."),
+              "UIRenderingTest":     ("Medium", "Medium: UI rendering mismatches affect usability and "
+                                                "brand consistency across different viewports."),
+              "NewsletterSignupTest":("High",   "High: Core signup flow failures prevent users from "
+                                                "subscribing, directly impacting product engagement."),
+          }
+
+          failure_blocks = []
+
+          for i, t in enumerate(failing_tests, 1):
+              label    = method_to_label(t["method"])
+              priority, impact = PRIORITY_MAP.get(t["class"],
+                  ("High", "High: Test failure indicates a defect that needs immediate investigation."))
+
+              # Derive expected / actual from the assertion message
+              # JUnit assertEquals/assertTrue messages follow predictable patterns
+              msg = t["msg"]
+              expected_line = ""
+              actual_line   = ""
+              if "expected:" in msg.lower() and "but was:" in msg.lower():
+                  parts = re.split(r'(?i)expected:\s*', msg, maxsplit=1)
+                  if len(parts) == 2:
+                      sub = re.split(r'(?i)\s*but was:\s*', parts[1], maxsplit=1)
+                      expected_line = sub[0].strip().strip("<>")
+                      actual_line   = sub[1].strip().strip("<>") if len(sub) > 1 else "See logs"
+              elif "==" in msg or "should" in msg.lower():
+                  expected_line = msg.split("==>")[0].strip() if "==>" in msg else msg[:120]
+                  actual_line   = "Differs from expected — see full logs for details"
+              else:
+                  expected_line = "See @DisplayName and assertion in test source"
+                  actual_line   = msg[:200] if msg else "See CI logs for full stack trace"
+
+              # Steps to reproduce are constructed generically but meaningfully
+              steps = (
+                  "1. Open a web browser and navigate to the newsletter application URL.\n"
+                  "2. Ensure the page loads fully before interacting.\n"
+                  f"3. Locate the feature under test: *{t['class'].replace('Test','')} — {label}*.\n"
+                  "4. Perform the action described by the test case.\n"
+                  "5. Observe the actual outcome and compare with the expected result below."
+              )
+
+              block_text = (
+                  f"*Test Case {i}:* `{label}`\n"
+                  f"*Class:* `{t['class']}`\n\n"
+                  f"*Description*\n"
+                  f"During automated testing of the Newsletter application, the test "
+                  f"`{label}` failed. This indicates that the behaviour of the feature "
+                  f"does not match the expected specification, which may affect the "
+                  f"user experience or system correctness.\n\n"
+                  f"*Steps to Reproduce*\n{steps}\n\n"
+                  f"*Expected Result*\n• {expected_line}\n\n"
+                  f"*Actual Result*\n• {actual_line}\n\n"
+                  f"*Impact*\n{impact}\n\n"
+                  f"*Priority:* {priority}"
+              )
+
+              failure_blocks.append({
+                  "type": "section",
+                  "text": {"type": "mrkdwn", "text": block_text}
+              })
+              # Divider between failures
+              if i < len(failing_tests):
+                  failure_blocks.append({"type": "divider"})
+
+          # ── Assemble the full Slack payload ──────────────────────────────
+          status_emoji = "✅" if is_pass else "❌"
+          status_label = "PASSED" if is_pass else "FAILED"
+          header_color = "#2e7d32" if is_pass else "#e01e5a"
+
+          # Summary header block
+          header_block = {
+              "type": "header",
+              "text": {
+                  "type": "plain_text",
+                  "text": f"{status_emoji}  Newsletter CI — Tests {status_label}",
+                  "emoji": True
+              }
+          }
+
+          summary_block = {
+              "type": "section",
+              "fields": [
+                  {"type": "mrkdwn", "text": f"*Repository*\n{repo}"},
+                  {"type": "mrkdwn", "text": f"*Branch*\n{branch}"},
+                  {"type": "mrkdwn", "text": f"*Triggered by*\n{actor} ({trigger})"},
+                  {"type": "mrkdwn", "text": f"*Commit*\n`{sha}` — {commit_msg[:60]}"},
+                  {"type": "mrkdwn", "text": f"*Run*\n<{run_url}|Run #{run_num}>"},
+                  {"type": "mrkdwn", "text": f"*Environment*\nubuntu-latest · Java 21 · Headless Chrome"},
+              ]
+          }
+
+          stats_block = {
+              "type": "section",
+              "text": {
+                  "type": "mrkdwn",
+                  "text": (
+                      f"*Test Summary*\n"
+                      f"✅ Passed: *{passed}*   "
+                      f"❌ Failed: *{failed}*   "
+                      f"⏭ Skipped: *{skipped}*   "
+                      f"📊 Total: *{total}*   "
+                      f"📈 Pass rate: *{pass_pct}%*"
+                  )
+              }
+          }
+
+          blocks = [header_block, {"type": "divider"}, summary_block, stats_block]
+
+          if failing_tests:
+              blocks.append({"type": "divider"})
+              blocks.append({
+                  "type": "section",
+                  "text": {
+                      "type": "mrkdwn",
+                      "text": f":rotating_light: *{len(failing_tests)} Failing Test Case(s) — Detailed Report*"
+                  }
+              })
+              blocks.append({"type": "divider"})
+              blocks.extend(failure_blocks)
+          else:
+              blocks.append({
+                  "type": "section",
+                  "text": {
+                      "type": "mrkdwn",
+                      "text": ":white_check_mark: All tests passed. No failures to report."
+                  }
+              })
+
+          blocks.append({"type": "divider"})
+          blocks.append({
+              "type": "actions",
+              "elements": [{
+                  "type": "button",
+                  "text": {"type": "plain_text", "text": "View Full Run on GitHub", "emoji": True},
+                  "url": run_url,
+                  "style": "primary"
               }]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+          })
+
+          payload = {
+              "text": f"{status_emoji} Newsletter Tests {status_label} — Run #{run_num}",
+              "attachments": [{
+                  "color": header_color,
+                  "blocks": blocks
+              }]
+          }
+
+          result = subprocess.run(
+              ["curl", "-s", "-X", "POST", webhook,
+               "-H", "Content-Type: application/json",
+               "-d", json.dumps(payload)],
+              capture_output=True, text=True
+          )
+          print(result.stdout)
+          if result.returncode != 0:
+              print("STDERR:", result.stderr, file=sys.stderr)
+              sys.exit(result.returncode)
+
+          print(f"Slack report sent — {len(failing_tests)} failure(s) detailed.")
+          PYEOF
 
       # 13. Fail the build if any tests actually failed
       - name: Fail build on test failures
