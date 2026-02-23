@@ -349,14 +349,14 @@ jobs:
           print(f" Email sent to {report_to}")
           PYEOF
 
-      # 11. Slack notification — SUCCESS
+      # 11. Slack notification
       - name: Send Slack report
         if: always()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           python3 << 'PYEOF'
-          import json, os, subprocess, sys, xml.etree.ElementTree as ET
+          import json, os, subprocess, sys, re
           from glob import glob
 
           webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
@@ -388,122 +388,83 @@ jobs:
               "workflow_dispatch":  "Manual trigger",
           }.get(event, event)
 
-          # ── Parse each failing testcase from surefire XML ─────────────────
-          # Map test method names to their @DisplayName via a best-effort
-          # approach: the name attribute in the XML is the method name;
-          # we use it as the test case name since @DisplayName is not in XML.
+          # ── Parse Allure JSON results for failing tests ──────────────────
           failing_tests = []
-          for xml_file in sorted(glob("target/surefire-reports/TEST-*.xml")):
+          for json_file in sorted(glob("target/allure-results/*-result.json")):
               try:
-                  tree = ET.parse(xml_file)
-              except ET.ParseError:
+                  with open(json_file, 'r', encoding='utf-8') as f:
+                      data = json.load(f)
+              except (json.JSONDecodeError, IOError):
                   continue
-              suite_name = tree.getroot().get("name", "")
-              # Derive a friendly class name (last segment)
-              short_class = suite_name.split(".")[-1] if suite_name else "Unknown"
 
-              for tc in tree.findall(".//testcase"):
-                  node = tc.find("failure") or tc.find("error")
-                  if node is None:
-                      continue
+              if data.get("status") in ["failed", "broken"]:
+                  # Extract labels for class name
+                  labels = {l["name"]: l["value"] for l in data.get("labels", [])}
+                  test_class = labels.get("testClass", "").split(".")[-1] or "Unknown"
+                  
+                  # Extract steps
+                  steps_list = []
+                  for i, s in enumerate(data.get("steps", []), 1):
+                      steps_list.append(f"{i}. {s.get('name', 'Step')}")
+                  
+                  steps_str = "\n".join(steps_list) if steps_list else "1. See Allure report for detailed execution trace."
 
-                  method   = tc.get("name", "unknown")
-                  raw_msg  = (node.get("message") or node.text or "").strip()
-                  # Trim assertion prefix noise for cleaner display
-                  disp_msg = raw_msg[:400]
+                  # Extract description (Allure often puts it in the 'description' field)
+                  desc = data.get("description", "No description provided.")
+                  
+                  # Separate impact if it was included in the description string
+                  impact = "High: Test failure indicates a defect that needs immediate investigation."
+                  if "**Impact:**" in desc:
+                      parts = desc.split("**Impact:**")
+                      desc = parts[0].strip()
+                      impact = parts[1].strip()
+
+                  # Severity mapping
+                  severity = labels.get("severity", "normal").capitalize()
+                  priority = "High" if severity in ["Blocker", "Critical"] else ("Medium" if severity == "Normal" else "Low")
+
+                  # Check for screenshot attachments
+                  has_screenshot = any("screenshot" in att.get("name", "").lower() for att in data.get("attachments", []))
+                  screenshot_note = "✅ *Screenshot captured and attached in the full report.*" if has_screenshot else "❌ No screenshot captured."
 
                   failing_tests.append({
-                      "class":  short_class,
-                      "method": method,
-                      "msg":    disp_msg,
+                      "name":        data.get("name", data.get("fullName", "Unknown Test")),
+                      "class":       test_class,
+                      "desc":        desc,
+                      "steps":       steps_str,
+                      "expected":    data.get("statusDetails", {}).get("message", "N/A"),
+                      "impact":      impact,
+                      "priority":    priority,
+                      "severity":    severity,
+                      "screenshot":  screenshot_note
                   })
 
-          # ── Helper to convert a camelCase method name to a readable label ─
-          import re
-          def method_to_label(name):
-              # verifyThatHeadingReadsStayInformed → Verify That Heading Reads Stay Informed
-              spaced = re.sub(r'([A-Z])', r' \1', name).strip()
-              return spaced[0].upper() + spaced[1:] if spaced else name
-
-          # ── Build the test-case detail blocks (one block per failure) ─────
-          # Each failure is presented exactly like the format requested:
-          # description, steps to reproduce, expected result, actual result,
-          # impact, priority — all derived from the test name and failure msg.
-
-          PRIORITY_MAP = {
-              "FormValidationTest":  ("High",   "High: Form validation failures allow invalid data through, "
-                                                "which can cause downstream errors and a poor user experience."),
-              "SuccessCardTest":     ("High",   "High: Incorrect success state feedback breaks the user "
-                                                "subscription flow and reduces trust in the system."),
-              "UIRenderingTest":     ("Medium", "Medium: UI rendering mismatches affect usability and "
-                                                "brand consistency across different viewports."),
-              "NewsletterSignupTest":("High",   "High: Core signup flow failures prevent users from "
-                                                "subscribing, directly impacting product engagement."),
-          }
+          # ── Build the Slack failure blocks ───────────────────────────────
+          header_color = "#2e7d32" if is_pass else "#e01e5a"
+          status_emoji = "✅" if is_pass else "❌"
+          status_label = "PASSED" if is_pass else "FAILED"
 
           failure_blocks = []
-
           for i, t in enumerate(failing_tests, 1):
-              label    = method_to_label(t["method"])
-              priority, impact = PRIORITY_MAP.get(t["class"],
-                  ("High", "High: Test failure indicates a defect that needs immediate investigation."))
-
-              # Derive expected / actual from the assertion message
-              # JUnit assertEquals/assertTrue messages follow predictable patterns
-              msg = t["msg"]
-              expected_line = ""
-              actual_line   = ""
-              if "expected:" in msg.lower() and "but was:" in msg.lower():
-                  parts = re.split(r'(?i)expected:\s*', msg, maxsplit=1)
-                  if len(parts) == 2:
-                      sub = re.split(r'(?i)\s*but was:\s*', parts[1], maxsplit=1)
-                      expected_line = sub[0].strip().strip("<>")
-                      actual_line   = sub[1].strip().strip("<>") if len(sub) > 1 else "See logs"
-              elif "==" in msg or "should" in msg.lower():
-                  expected_line = msg.split("==>")[0].strip() if "==>" in msg else msg[:120]
-                  actual_line   = "Differs from expected — see full logs for details"
-              else:
-                  expected_line = "See @DisplayName and assertion in test source"
-                  actual_line   = msg[:200] if msg else "See CI logs for full stack trace"
-
-              # Steps to reproduce are constructed generically but meaningfully
-              steps = (
-                  "1. Open a web browser and navigate to the newsletter application URL.\n"
-                  "2. Ensure the page loads fully before interacting.\n"
-                  f"3. Locate the feature under test: *{t['class'].replace('Test','')} — {label}*.\n"
-                  "4. Perform the action described by the test case.\n"
-                  "5. Observe the actual outcome and compare with the expected result below."
-              )
-
               block_text = (
-                  f"*Test Case {i}:* `{label}`\n"
+                  f"*Test Case {i}:* `{t['name']}`\n"
                   f"*Class:* `{t['class']}`\n\n"
-                  f"*Description*\n"
-                  f"During automated testing of the Newsletter application, the test "
-                  f"`{label}` failed. This indicates that the behaviour of the feature "
-                  f"does not match the expected specification, which may affect the "
-                  f"user experience or system correctness.\n\n"
-                  f"*Steps to Reproduce*\n{steps}\n\n"
-                  f"*Expected Result*\n• {expected_line}\n\n"
-                  f"*Actual Result*\n• {actual_line}\n\n"
-                  f"*Impact*\n{impact}\n\n"
-                  f"*Priority:* {priority}"
+                  f"*Description*\n{t['desc']}\n\n"
+                  f"*Steps to Reproduce*\n{t['steps']}\n\n"
+                  f"*Actual Result (Assertion)*\n```\n{t['expected'][:300]}\n```\n"
+                  f"*Impact*\n{t['impact']}\n\n"
+                  f"*Priority:* {t['priority']} ({t['severity']})\n"
+                  f"{t['screenshot']}"
               )
 
               failure_blocks.append({
                   "type": "section",
                   "text": {"type": "mrkdwn", "text": block_text}
               })
-              # Divider between failures
               if i < len(failing_tests):
                   failure_blocks.append({"type": "divider"})
 
           # ── Assemble the full Slack payload ──────────────────────────────
-          status_emoji = "✅" if is_pass else "❌"
-          status_label = "PASSED" if is_pass else "FAILED"
-          header_color = "#2e7d32" if is_pass else "#e01e5a"
-
-          # Summary header block
           header_block = {
               "type": "header",
               "text": {
@@ -521,7 +482,7 @@ jobs:
                   {"type": "mrkdwn", "text": f"*Triggered by*\n{actor} ({trigger})"},
                   {"type": "mrkdwn", "text": f"*Commit*\n`{sha}` — {commit_msg[:60]}"},
                   {"type": "mrkdwn", "text": f"*Run*\n<{run_url}|Run #{run_num}>"},
-                  {"type": "mrkdwn", "text": f"*Environment*\nubuntu-latest · Java 21 · Headless Chrome"},
+                  {"type": "mrkdwn", "text": f"*Environment*\nubuntu-latest · Headless Chrome"},
               ]
           }
 
@@ -539,6 +500,7 @@ jobs:
                   )
               }
           }
+
 
           blocks = [header_block, {"type": "divider"}, summary_block, stats_block]
 
@@ -594,6 +556,7 @@ jobs:
 
           print(f"Slack report sent — {len(failing_tests)} failure(s) detailed.")
           PYEOF
+
 
       # 13. Fail the build if any tests actually failed
       - name: Fail build on test failures
