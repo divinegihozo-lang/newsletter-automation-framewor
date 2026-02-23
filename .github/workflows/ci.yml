@@ -234,6 +234,8 @@ jobs:
           }.get(event, event)
 
           run_url    = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          run_num    = "${{ github.run_number }}"
+          branch     = "${{ github.ref_name }}"
           commit_url = "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
           short_sha  = "${{ github.sha }}"[:7]
           timestamp  = datetime.now(timezone.utc).strftime("%d %B %Y at %H:%M UTC")
