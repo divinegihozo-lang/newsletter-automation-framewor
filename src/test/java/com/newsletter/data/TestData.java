@@ -2,10 +2,6 @@ package com.newsletter.data;
 
 import java.util.stream.Stream;
 
-/**
- * Dedicated class for test data constants and method sources.
- * Centralizing data here makes maintenance easier and keeps test files clean.
- */
 public class TestData {
 
     // ── Emails ───────────────────────────────────────────────────────────────

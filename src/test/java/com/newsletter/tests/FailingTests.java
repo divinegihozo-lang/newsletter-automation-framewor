@@ -11,34 +11,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Epic("Failing Tests Demo")
 @Feature("Reporting Requirements")
+@DisplayName("Intentionally Failing Tests")
 public class FailingTests extends TestBase {
 
     @Test
     @Severity(SeverityLevel.CRITICAL)
     @DisplayName("Verify that a non-existent element is present")
-    @Description("This test is intentionally designed to fail by checking for a non-existent element to demonstrate reporting capabilities.\n\n"
-            +
-            "**Impact:** If this element were real, its absence would prevent users from completing critical actions.")
+    @Description("This test checks for a non-existent element to demonstrate reporting.\n" +
+            "It is used to verify that screenshots are captured on failure.\n" +
+            "**Impact:** Missing critical UI elements prevents users from finishing tasks.")
     void verifyNonExistentElementIsPresent() {
-        step1_navigateToNewsletterPage();
+        step1_openBrowserAndNavigate();
         step2_verifyPresenceOfGhostElement(newsletterPage);
     }
 
     @Test
     @Severity(SeverityLevel.MINOR)
     @DisplayName("Verify that the heading text matches an incorrect value")
-    @Description("This test is intentionally designed to fail by asserting an incorrect heading text.\n\n" +
-            "**Impact:** Incorrect heading text can lead to user confusion regarding the page purpose.")
+    @Description("This test asserts an incorrect heading text value intentionally.\n" +
+            "It demonstrates how assertion failures are rendered in reports.\n" +
+            "**Impact:** Incorrect heading text leads to user confusion and mistrust.")
     void verifyHeadingTextWithIncorrectValue() {
-        step1_navigateToNewsletterPage();
+        step1_openBrowserAndNavigate();
         step2_verifyHeadingText(newsletterPage);
     }
 
-    @Step("Step 1: Navigate to the Newsletter Page")
-    private void step1_navigateToNewsletterPage() {
+    @Step("Step 1: Open browser and navigate to Newsletter page")
+    private void step1_openBrowserAndNavigate() {
     }
 
-    @Step("Step 2: Verify the presence of a ghost element that doesn't exist")
+    @Step("Step 2: Verify the presence of a ghost element")
     private void step2_verifyPresenceOfGhostElement(NewsletterPage newsletterPage) {
         assertTrue(false, "Ghost element with ID 'id-that-does-not-exist' should be visible");
     }
