@@ -425,7 +425,7 @@ jobs:
 
                   # Check for screenshot attachments
                   has_screenshot = any("screenshot" in att.get("name", "").lower() for att in data.get("attachments", []))
-                  screenshot_note = "✅ *Screenshot captured and attached in the full report.*" if has_screenshot else "❌ No screenshot captured."
+                  screenshot_note = "📸 *Screenshot captured!* Find it in the *Allure Report* artifact below." if has_screenshot else "⚠️ No screenshot captured for this failure."
 
                   failing_tests.append({
                       "name":        data.get("name", data.get("fullName", "Unknown Test")),

@@ -37,16 +37,17 @@ public class FailingTests extends TestBase {
     }
 
     @Step("Step 1: Open browser and navigate to Newsletter page")
-    private void step1_openBrowserAndNavigate() {
+    protected void step1_openBrowserAndNavigate() {
+        assertTrue(driver.getCurrentUrl().contains("NEWSLETTER"), "Redirect to correct page");
     }
 
     @Step("Step 2: Verify the presence of a ghost element")
-    private void step2_verifyPresenceOfGhostElement(NewsletterPage newsletterPage) {
+    protected void step2_verifyPresenceOfGhostElement(NewsletterPage newsletterPage) {
         assertTrue(false, "Ghost element with ID 'id-that-does-not-exist' should be visible");
     }
 
     @Step("Step 2: Verify that the heading text is 'Wrong Heading'")
-    private void step2_verifyHeadingText(NewsletterPage newsletterPage) {
+    protected void step2_verifyHeadingText(NewsletterPage newsletterPage) {
         assertEquals("Wrong Heading Text", newsletterPage.getHeadingText(),
                 "Heading text should match the expected value (Intentionally failing)");
     }

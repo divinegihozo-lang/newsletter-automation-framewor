@@ -134,70 +134,71 @@ class UIRenderingTest extends TestBase {
     // ── Steps ─────────────────────────────────────────────────────────────────
 
     @Step("Step 1: Open browser and navigate to Newsletter page")
-    private void step1_openBrowserAndNavigate() {
-        // Navigation already handled in @BeforeEach in TestBase
+    protected void step1_openBrowserAndNavigate() {
+        // Navigation is handled in TestBase, but we can verify we are on the right URL
+        assertTrue(driver.getCurrentUrl().contains("NEWSLETTER"), "Should be on the newsletter page");
     }
 
     @Step("Step 2: Verify main heading text is '{expectedHeading}'")
-    private void step2_verifyHeadingText(String expectedHeading) {
+    protected void step2_verifyHeadingText(String expectedHeading) {
         assertEquals(expectedHeading, newsletterPage.getHeadingText(),
                 "Main heading should match expected value");
     }
 
     @Step("Step 2: Verify subheading contains expected text: '{expected}'")
-    private void step2_verifySubheadingContainsText(String expected) {
+    protected void step2_verifySubheadingContainsText(String expected) {
         assertTrue(newsletterPage.getSubheadingText().contains(expected),
                 "Subheading should contain " + expected);
     }
 
     @Step("Step 2: Verify all feature list items are visible")
-    private void step2_verifyFeatureItemsVisibility() {
+    protected void step2_verifyFeatureItemsVisibility() {
         assertTrue(newsletterPage.areAllFeatureItemsVisible(),
                 "All three feature list items should be visible");
     }
 
     @Step("Step 2: Verify email input label text is '{expected}'")
-    private void step2_verifyEmailLabelText(String expected) {
+    protected void step2_verifyEmailLabelText(String expected) {
         assertEquals(expected, newsletterPage.getEmailLabelText(),
                 "Email label text should match");
     }
 
     @Step("Step 2: Verify email input placeholder text is '{expected}'")
-    private void step2_verifyEmailPlaceholder(String expected) {
+    protected void step2_verifyEmailPlaceholder(String expected) {
         assertEquals(expected, newsletterPage.getEmailInputPlaceholder(),
                 "Placeholder text should match");
     }
 
     @Step("Step 2: Verify subscribe button text is '{expected}'")
-    private void step2_verifySubscribeButtonText(String expected) {
+    protected void step2_verifySubscribeButtonText(String expected) {
         assertEquals(expected, newsletterPage.getSubscribeButtonText(),
                 "Subscribe button text should match");
     }
 
     @Step("Step 2: Verify hero image is displayed")
-    private void step2_verifyHeroImageVisibility() {
+    protected void step2_verifyHeroImageVisibility() {
         assertTrue(newsletterPage.isHeroImageDisplayed(), "Hero illustration should be visible");
     }
 
     @Step("Step 2: Set window size to {width}x{height}")
-    private void step2_setViewportSize(int width, int height) {
+    protected void step2_setViewportSize(int width, int height) {
         driver.manage().window().setSize(new Dimension(width, height));
     }
 
     @Step("Step 3: Verify hero image source contains '{expectedSnippet}'")
-    private void step3_verifyHeroImageSrcContains(String expectedSnippet) {
+    protected void step3_verifyHeroImageSrcContains(String expectedSnippet) {
         String src = newsletterPage.getHeroImageSrc();
         assertTrue(src.contains(expectedSnippet) || src.contains("illustration"),
                 "Image src should contain " + expectedSnippet);
     }
 
     @Step("Step 3: Verify newsletter card is visible in mobile layout")
-    private void step3_verifyNewsletterCardVisibility() {
+    protected void step3_verifyNewsletterCardVisibility() {
         assertTrue(newsletterPage.isNewsletterCardVisible(), "Newsletter card should be visible");
     }
 
     @Step("Step 3: Verify subscribe button is visible in mobile layout")
-    private void step3_verifySubscribeButtonVisibility() {
+    protected void step3_verifySubscribeButtonVisibility() {
         assertTrue(newsletterPage.isSubscribeButtonDisplayed(), "Subscribe button should be visible");
     }
 }

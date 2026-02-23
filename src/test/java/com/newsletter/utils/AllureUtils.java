@@ -1,14 +1,16 @@
 package com.newsletter.utils;
 
-import io.qameta.allure.Attachment;
+import io.qameta.allure.Allure;
 import org.openqa.selenium.OutputType;
 import org.openqa.selenium.TakesScreenshot;
 import org.openqa.selenium.WebDriver;
 
+import java.io.ByteArrayInputStream;
+
 public class AllureUtils {
 
-    @Attachment(value = "Failure Screenshot", type = "image/png")
-    public static byte[] takeScreenshot(WebDriver driver) {
-        return ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
+    public static void takeScreenshot(WebDriver driver) {
+        byte[] screenshot = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
+        Allure.addAttachment("Failure Screenshot", "image/png", new ByteArrayInputStream(screenshot), "png");
     }
 }
