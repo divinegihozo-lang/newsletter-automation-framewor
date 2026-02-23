@@ -1,47 +1,31 @@
 package com.newsletter.tests;
 
-import com.newsletter.pages.NewsletterPage;
+import com.newsletter.data.TestData;
+
 import com.newsletter.utils.TestBase;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.openqa.selenium.Dimension;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * UIRenderingTest
- *
- * Tests static UI content and layout rendering:
- * - Page content (headings, labels, placeholder text)
- * - Feature list items visible
- * - Hero image rendered
- * - Responsive layout switches at mobile breakpoint
- */
 @DisplayName("UI Rendering Tests")
 class UIRenderingTest extends TestBase {
-
-    private NewsletterPage newsletterPage;
-
-    @BeforeEach
-    void initPage() {
-        newsletterPage = new NewsletterPage(driver);
-    }
 
     // ── Content checks ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Verify that page heading reads 'Stay updated!'")
+    @DisplayName("Verify that page heading is correct")
     void verifyThatHeadingReadsStayUpdated() {
-        assertEquals("Stay updated!", newsletterPage.getHeadingText(),
-                "Main heading should read 'Stay updated!'");
+        assertEquals(TestData.HEADING_STAY_UPDATED, newsletterPage.getHeadingText(),
+                "Main heading should read '" + TestData.HEADING_STAY_UPDATED + "'");
     }
 
     @Test
-    @DisplayName("Verify that subheading contains '60,000+ product managers'")
+    @DisplayName("Verify that subheading contains expected snippet")
     void verifyThatSubheadingContainsProductManagers() {
-        assertTrue(newsletterPage.getSubheadingText().contains("60,000+"),
-                "Subheading should reference 60,000+ product managers");
+        assertTrue(newsletterPage.getSubheadingText().contains(TestData.SUBHEADING_CONTAINS_PM_COUNT),
+                "Subheading should reference " + TestData.SUBHEADING_CONTAINS_PM_COUNT);
     }
 
     @Test
@@ -52,23 +36,23 @@ class UIRenderingTest extends TestBase {
     }
 
     @Test
-    @DisplayName("Verify that email label reads 'Email address'")
+    @DisplayName("Verify that email label is correct")
     void verifyThatEmailLabelReadsEmailAddress() {
-        assertEquals("Email address", newsletterPage.getEmailLabelText(),
-                "Email label should read 'Email address'");
+        assertEquals(TestData.EMAIL_LABEL, newsletterPage.getEmailLabelText(),
+                "Email label should read '" + TestData.EMAIL_LABEL + "'");
     }
 
     @Test
-    @DisplayName("Verify that input placeholder reads 'email@company.com'")
+    @DisplayName("Verify that input placeholder is correct")
     void verifyThatPlaceholderIsCorrect() {
-        assertEquals("email@company.com", newsletterPage.getEmailInputPlaceholder(),
-                "Placeholder text should be 'email@company.com'");
+        assertEquals(TestData.EMAIL_PLACEHOLDER, newsletterPage.getEmailInputPlaceholder(),
+                "Placeholder text should be '" + TestData.EMAIL_PLACEHOLDER + "'");
     }
 
     @Test
     @DisplayName("Verify that subscribe button text is correct")
     void verifyThatSubscribeButtonHasCorrectText() {
-        assertEquals("Subscribe to monthly newsletter",
+        assertEquals(TestData.SUBSCRIBE_BUTTON_TEXT,
                 newsletterPage.getSubscribeButtonText(),
                 "Subscribe button text should match");
     }
@@ -85,8 +69,6 @@ class UIRenderingTest extends TestBase {
     void verifyThatHeroImageUsesDesktopSrcOnWideViewport() {
         // Ensure desktop width
         driver.manage().window().setSize(new Dimension(1440, 900));
-        // Re-init page after resize
-        newsletterPage = new NewsletterPage(driver);
         String src = newsletterPage.getHeroImageSrc();
         assertTrue(src.contains("desktop") || src.contains("illustration"),
                 "Desktop viewport should use the desktop illustration. Actual src: " + src);
@@ -98,7 +80,6 @@ class UIRenderingTest extends TestBase {
     @DisplayName("Verify that mobile viewport (375px) shows newsletter card")
     void verifyThatMobileViewportShowsNewsletterCard() {
         driver.manage().window().setSize(new Dimension(375, 812));
-        newsletterPage = new NewsletterPage(driver);
         assertTrue(newsletterPage.isNewsletterCardVisible(),
                 "Newsletter card should be visible at 375px mobile width");
     }
@@ -107,8 +88,8 @@ class UIRenderingTest extends TestBase {
     @DisplayName("Verify that mobile viewport (375px) shows subscribe button")
     void verifyThatMobileViewportShowsSubscribeButton() {
         driver.manage().window().setSize(new Dimension(375, 812));
-        newsletterPage = new NewsletterPage(driver);
         assertTrue(newsletterPage.isSubscribeButtonDisplayed(),
                 "Subscribe button should be visible at 375px");
     }
+
 }

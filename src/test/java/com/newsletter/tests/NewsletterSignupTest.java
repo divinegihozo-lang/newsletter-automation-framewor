@@ -1,6 +1,6 @@
 package com.newsletter.tests;
 
-import com.newsletter.pages.NewsletterPage;
+import com.newsletter.data.TestData;
 import com.newsletter.pages.SuccessPage;
 import com.newsletter.utils.TestBase;
 import io.qameta.allure.Description;
@@ -20,12 +20,9 @@ public class NewsletterSignupTest extends TestBase {
     @Story("Verify that user subscribes with valid email")
     @Description("Verify that user can subscribe successfully with valid email")
     void verifyThatUserSubscribesSuccessfully() {
-        NewsletterPage newsletterPage = new NewsletterPage(driver);
-        // Page is opened provided by TestBase
-
-        SuccessPage successPage = newsletterPage.submitValidEmail("didi@example.com");
+        SuccessPage successPage = newsletterPage.submitValidEmail(TestData.SIGNUP_TEST_EMAIL);
 
         assertTrue(successPage.isSuccessCardVisible(), "Success card should be visible");
-        assertEquals("Thanks for subscribing!", successPage.getSuccessHeadingText(), "Success heading should match");
+        assertEquals(TestData.SUCCESS_HEADING, successPage.getSuccessHeadingText(), "Success heading should match");
     }
 }
