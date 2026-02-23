@@ -20,13 +20,16 @@ public class DriverManager {
 
     public static void quitDriver() {
         WebDriver driver = driverThreadLocal.get();
-        if (driver != null) {
+        if (driver == null) return;
+
+        try {
             driver.quit();
+        } catch (Exception e) {
+            System.err.println("[DriverManager] Warning during quit: " + e.getMessage());
+        } finally {
             driverThreadLocal.remove();
         }
     }
-
-    // ── private helpers ──────────────────────────────────────────────────────
 
     private static WebDriver createDriver() {
         WebDriverManager.chromedriver().setup();
